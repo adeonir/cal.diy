@@ -2,6 +2,7 @@
 
 import SettingsHeader from "@calcom/features/settings/appDir/SettingsHeader";
 import SectionBottomActions from "@calcom/features/settings/SectionBottomActions";
+import { DEFAULT_BUSINESS_HOURS } from "@calcom/lib/businessHours";
 import { formatLocalizedDateTime } from "@calcom/lib/dayjs";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { localeOptions } from "@calcom/lib/i18n";
@@ -10,7 +11,7 @@ import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
 import classNames from "@calcom/ui/classNames";
 import { Button } from "@calcom/ui/components/button";
-import { Form, Label, Select, SettingsToggle } from "@calcom/ui/components/form";
+import { CheckboxField, Form, Label, Select, SettingsToggle } from "@calcom/ui/components/form";
 import { Icon } from "@calcom/ui/components/icon";
 import { showToast } from "@calcom/ui/components/toast";
 import { revalidateTravelSchedules } from "@calcom/web/app/cache/travelSchedule";
@@ -41,14 +42,20 @@ export type FormValues = {
     endDate?: Date;
     timeZone: string;
   }[];
+  businessHours: {
+    startTime: number;
+    endTime: number;
+    days: number[];
+  };
 };
 
 interface GeneralViewProps {
   user: RouterOutputs["viewer"]["me"]["get"];
   travelSchedules: RouterOutputs["viewer"]["travelSchedules"]["get"];
+  businessHours: RouterOutputs["viewer"]["businessHours"]["get"];
 }
 
-const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
+const GeneralView = ({ user, travelSchedules, businessHours }: GeneralViewProps) => {
   const localeProp = user.locale ?? "en";
   const utils = trpc.useContext();
   const {
@@ -84,6 +91,16 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
     },
   });
 
+  const businessHoursMutation = trpc.viewer.businessHours.update.useMutation({
+    onSuccess: async () => {
+      await utils.viewer.businessHours.invalidate();
+      revalidateSettingsGeneral();
+    },
+    onError: () => {
+      showToast(t("error_updating_settings"), "error");
+    },
+  });
+
   const timeFormatOptions = [
     { value: 12, label: t("12_hour") },
     { value: 24, label: t("24_hour") },
@@ -102,6 +119,27 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
     [language, localeProp]
   );
 
+  const businessHoursTimeOptions = useMemo(
+    () =>
+      Array.from({ length: (24 * 60) / 15 }, (_, index) => {
+        const minutes = index * 15;
+        const hour = Math.floor(minutes / 60);
+        const minute = minutes % 60;
+
+        return {
+          value: minutes,
+          label: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+        };
+      }),
+    []
+  );
+
+  const businessHoursDayOptions = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, day) => ({ value: day, label: nameOfDay(language || localeProp, day) })),
+    [language, localeProp]
+  );
+
   const formMethods = useForm<FormValues>({
     defaultValues: {
       locale: {
@@ -117,6 +155,7 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
         value: user.weekStart,
         label: weekStartOptions.find((option) => option.value === user.weekStart)?.label || "",
       },
+      businessHours: businessHours ?? DEFAULT_BUSINESS_HOURS,
       travelSchedules:
         travelSchedules.map((schedule) => {
           return {
@@ -159,8 +198,14 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
           form={formMethods}
           handleSubmit={async (values) => {
             setIsUpdateBtnLoading(true);
+            const { businessHours: businessHoursValues, ...profileValues } = values;
+
+            if (formMethods.formState.dirtyFields.businessHours) {
+              await businessHoursMutation.mutateAsync(businessHoursValues);
+            }
+
             mutation.mutate({
-              ...values,
+              ...profileValues,
               locale: values.locale.value,
               timeFormat: values.timeFormat.value,
               weekStart: values.weekStart.value,
@@ -281,7 +326,11 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
                     <>{t("time_format")}</>
                   </Label>
                   <Select
-                    value={timeFormatOptions.find((option) => option.value === (typeof value === "object" ? value?.value : value)) || value}
+                    value={
+                      timeFormatOptions.find(
+                        (option) => option.value === (typeof value === "object" ? value?.value : value)
+                      ) || value
+                    }
                     options={timeFormatOptions}
                     onChange={(event) => {
                       if (event) formMethods.setValue("timeFormat", { ...event }, { shouldDirty: true });
@@ -303,12 +352,81 @@ const GeneralView = ({ user, travelSchedules }: GeneralViewProps) => {
                     <>{t("start_of_week")}</>
                   </Label>
                   <Select
-                    value={weekStartOptions.find((option) => option.value === (typeof value === "object" ? value?.value : value)) || value}
+                    value={
+                      weekStartOptions.find(
+                        (option) => option.value === (typeof value === "object" ? value?.value : value)
+                      ) || value
+                    }
                     options={weekStartOptions}
                     onChange={(event) => {
                       if (event) formMethods.setValue("weekStart", { ...event }, { shouldDirty: true });
                     }}
                   />
+                </>
+              )}
+            />
+            <Controller
+              name="businessHours"
+              control={formMethods.control}
+              render={({ field: { value } }) => (
+                <>
+                  <Label className="text-emphasis mt-6">
+                    <>{t("business_hours")}</>
+                  </Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="w-full sm:w-1/2">
+                      <Select
+                        aria-label={t("business_hours_start")}
+                        value={businessHoursTimeOptions.find((option) => option.value === value.startTime)}
+                        options={businessHoursTimeOptions}
+                        onChange={(option) => {
+                          if (option)
+                            formMethods.setValue(
+                              "businessHours",
+                              { ...value, startTime: option.value },
+                              { shouldDirty: true }
+                            );
+                        }}
+                        data-testid="business-hours-start"
+                      />
+                    </div>
+                    <div className="w-full sm:w-1/2">
+                      <Select
+                        aria-label={t("business_hours_end")}
+                        value={businessHoursTimeOptions.find((option) => option.value === value.endTime)}
+                        options={businessHoursTimeOptions}
+                        onChange={(option) => {
+                          if (option)
+                            formMethods.setValue(
+                              "businessHours",
+                              { ...value, endTime: option.value },
+                              { shouldDirty: true }
+                            );
+                        }}
+                        data-testid="business-hours-end"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+                    {businessHoursDayOptions.map((day) => (
+                      <CheckboxField
+                        key={day.value}
+                        description={day.label}
+                        checked={value.days.includes(day.value)}
+                        onChange={(event) => {
+                          const days = event.target.checked
+                            ? [...value.days, day.value].sort()
+                            : value.days.filter((activeDay) => activeDay !== day.value);
+
+                          formMethods.setValue("businessHours", { ...value, days }, { shouldDirty: true });
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="text-gray text-subtle mt-2 flex items-start text-xs">
+                    <Icon name="info" className="mr-2 mt-0.25" />
+                    {t("business_hours_description")}
+                  </div>
                 </>
               )}
             />

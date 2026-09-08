@@ -1,10 +1,12 @@
 import { getPaymentAppData } from "@calcom/app-store/_utils/payments/getPaymentAppData";
 import { useIsPlatformBookerEmbed } from "@calcom/atoms/hooks/useIsPlatformBookerEmbed";
+import dayjs from "@calcom/dayjs";
 import { useBookerStoreContext } from "@calcom/features/bookings/Booker/BookerStoreProvider";
 import { useBookerTime } from "@calcom/features/bookings/Booker/hooks/useBookerTime";
 import type { UseBookingFormReturnType } from "@calcom/features/bookings/Booker/hooks/useBookingForm";
 import { formatEventFromTime } from "@calcom/features/bookings/Booker/utils/dates";
 import type { BookerEvent } from "@calcom/features/bookings/types";
+import { DEFAULT_BUSINESS_HOURS } from "@calcom/lib/businessHours";
 import ServerTrans from "@calcom/lib/components/ServerTrans";
 import { APP_NAME, WEBSITE_PRIVACY_POLICY_URL, WEBSITE_TERMS_URL } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
@@ -13,14 +15,17 @@ import type { TimeFormat } from "@calcom/lib/timeFormat";
 import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
-import { Form } from "@calcom/ui/components/form";
+import { CheckboxField, Form } from "@calcom/ui/components/form";
 import type { TFunction } from "i18next";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FieldError } from "react-hook-form";
 import type { IUseBookingErrors, IUseBookingLoadingStates } from "../../hooks/useBookings";
 import { BookingFields } from "./BookingFields";
 import { FormSkeleton } from "./Skeleton";
+
+const formatBusinessHour = (minutesSinceMidnight: number, timeFormat: TimeFormat) =>
+  dayjs.utc().startOf("day").add(minutesSinceMidnight, "minute").format(timeFormat);
 
 type BookEventFormProps = {
   onCancel?: () => void;
@@ -34,6 +39,7 @@ type BookEventFormProps = {
   isPlatform?: boolean;
   isVerificationCodeSending: boolean;
   isTimeslotUnavailable: boolean;
+  isOutsideBusinessHours?: boolean;
   shouldRenderCaptcha?: boolean;
   confirmButtonDisabled?: boolean;
   classNames?: {
@@ -56,6 +62,7 @@ export const BookEventForm = ({
   isVerificationCodeSending,
   isPlatform = false,
   isTimeslotUnavailable,
+  isOutsideBusinessHours = false,
   shouldRenderCaptcha,
   confirmButtonDisabled,
   classNames,
@@ -64,7 +71,10 @@ export const BookEventForm = ({
   eventQuery: {
     isError: boolean;
     isPending: boolean;
-    data?: Pick<BookerEvent, "price" | "currency" | "metadata" | "bookingFields" | "locations"> | null;
+    data?: Pick<
+      BookerEvent,
+      "price" | "currency" | "metadata" | "bookingFields" | "locations" | "organizerBusinessHours"
+    > | null;
   };
 }) => {
   const eventType = eventQuery.data;
@@ -89,6 +99,14 @@ export const BookEventForm = ({
     return getPaymentAppData(eventType)?.currency || "USD";
   }, [eventType]);
 
+  const [hasAcknowledgedBusinessHours, setHasAcknowledgedBusinessHours] = useState(false);
+
+  // The booker can pick another slot without leaving the form, and a stale acknowledgement would
+  // let them through without ever seeing the warning for the new slot.
+  useEffect(() => {
+    setHasAcknowledgedBusinessHours(false);
+  }, [timeslot]);
+
   if (eventQuery.isError) return <Alert severity="warning" message={t("error_booking_event")} />;
   if (eventQuery.isPending || !eventQuery.data) return <FormSkeleton />;
   if (!timeslot)
@@ -108,6 +126,8 @@ export const BookEventForm = ({
   }
 
   const watchedCfToken = bookingForm.watch("cfToken");
+  const businessHours = eventType.organizerBusinessHours?.businessHours ?? DEFAULT_BUSINESS_HOURS;
+  const organizerTimeZone = eventType.organizerBusinessHours?.timeZone;
 
   return (
     <div className="flex flex-col h-full">
@@ -170,6 +190,27 @@ export const BookEventForm = ({
                   ]}
                 />
               }
+            />
+          </div>
+        ) : isOutsideBusinessHours ? (
+          <div data-testid="outside-business-hours-warning" className="my-2">
+            <Alert
+              severity="warning"
+              title={t("outside_business_hours_title")}
+              message={t("outside_business_hours_description", {
+                start: formatBusinessHour(businessHours.startTime, timeFormat),
+                end: formatBusinessHour(businessHours.endTime, timeFormat),
+                timeZone: organizerTimeZone,
+                // The message renders as plain text, so an escaped slash in a timezone name shows raw
+                interpolation: { escapeValue: false },
+              })}
+            />
+            <CheckboxField
+              className="mt-2"
+              description={t("outside_business_hours_acknowledge")}
+              checked={hasAcknowledgedBusinessHours}
+              onChange={(event) => setHasAcknowledgedBusinessHours(event.target.checked)}
+              data-testid="outside-business-hours-ack"
             />
           </div>
         ) : null}
@@ -237,7 +278,10 @@ export const BookEventForm = ({
             type="submit"
             color="primary"
             disabled={
-              (!!shouldRenderCaptcha && !watchedCfToken) || isTimeslotUnavailable || confirmButtonDisabled
+              (!!shouldRenderCaptcha && !watchedCfToken) ||
+              isTimeslotUnavailable ||
+              confirmButtonDisabled ||
+              (isOutsideBusinessHours && !hasAcknowledgedBusinessHours)
             }
             loading={
               loadingStates.creatingBooking ||

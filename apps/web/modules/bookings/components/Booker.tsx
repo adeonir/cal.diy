@@ -30,6 +30,7 @@ import classNames from "@calcom/ui/classNames";
 import { DialogContent } from "@calcom/ui/components/dialog";
 import { UnpublishedEntity } from "@calcom/ui/components/unpublished-entity";
 import TurnstileCaptcha from "@calcom/web/modules/auth/components/Turnstile";
+import { useOutsideBusinessHours } from "@calcom/web/modules/bookings/hooks/useOutsideBusinessHours";
 import { useSkipConfirmStep } from "@calcom/web/modules/bookings/hooks/useSkipConfirmStep";
 import { useNonEmptyScheduleDays } from "@calcom/web/modules/schedules/hooks/useNonEmptyScheduleDays";
 import { AnimatePresence, LazyMotion, m } from "framer-motion";
@@ -197,6 +198,8 @@ const BookerComponent = ({
     event?.data?.locations
   );
 
+  const isOutsideBusinessHours = useOutsideBusinessHours(event?.data);
+
   // Cloudflare Turnstile Captcha
   // Note: process.env may be undefined in embed contexts, so we safely check it
   const isE2E = typeof process !== "undefined" && process.env?.NEXT_PUBLIC_IS_E2E;
@@ -211,7 +214,7 @@ const BookerComponent = ({
   const onAvailableTimeSlotSelect = (time: string) => {
     setSelectedTimeslot(time);
 
-    if (!skipConfirmStep) {
+    if (!skipConfirmStep || isOutsideBusinessHours(time)) {
       setIsSlotSelectionModalVisible(false);
     }
   };
@@ -223,10 +226,23 @@ const BookerComponent = ({
     if (!selectedDate) return setBookerState("selecting_date");
     if (!selectedTimeslot) return setBookerState("selecting_time");
     const isSkipConfirmStepSupported = layout !== BookerLayouts.WEEK_VIEW;
-    if (selectedTimeslot && skipConfirmStep && isSkipConfirmStepSupported)
+    if (
+      selectedTimeslot &&
+      skipConfirmStep &&
+      isSkipConfirmStepSupported &&
+      !isOutsideBusinessHours(selectedTimeslot)
+    )
       return setBookerState("selecting_time");
     return setBookerState("booking");
-  }, [event.isPending, selectedDate, selectedTimeslot, setBookerState, skipConfirmStep, layout]);
+  }, [
+    event.isPending,
+    selectedDate,
+    selectedTimeslot,
+    setBookerState,
+    skipConfirmStep,
+    layout,
+    isOutsideBusinessHours,
+  ]);
 
   const unavailableTimeSlots = isQuickAvailabilityCheckFeatureEnabled
     ? allSelectedTimeslots.filter((slot) => {
@@ -276,6 +292,7 @@ const BookerComponent = ({
         errorRef={bookerFormErrorRef}
         errors={{ ...formErrors, ...errors }}
         isTimeslotUnavailable={unavailableTimeSlots.includes(selectedTimeslot || "")}
+        isOutsideBusinessHours={isOutsideBusinessHours(selectedTimeslot)}
         loadingStates={loadingStates}
         renderConfirmNotVerifyEmailButtonCond={renderConfirmNotVerifyEmailButtonCond}
         bookingForm={bookingForm}
@@ -310,6 +327,8 @@ const BookerComponent = ({
     shouldRenderCaptcha,
     isVerificationCodeSending,
     unavailableTimeSlots,
+    isOutsideBusinessHours,
+    selectedTimeslot,
   ]);
 
   /**
@@ -524,6 +543,7 @@ const BookerComponent = ({
                 isVerificationCodeSending={isVerificationCodeSending}
                 onSubmit={onSubmit}
                 skipConfirmStep={skipConfirmStep}
+                isOutsideBusinessHours={isOutsideBusinessHours}
                 shouldRenderCaptcha={shouldRenderCaptcha}
                 watchedCfToken={watchedCfToken}
                 confirmButtonDisabled={confirmButtonDisabled}
@@ -615,6 +635,7 @@ const BookerComponent = ({
             isVerificationCodeSending={isVerificationCodeSending}
             onSubmit={onSubmit}
             skipConfirmStep={skipConfirmStep}
+            isOutsideBusinessHours={isOutsideBusinessHours}
             shouldRenderCaptcha={shouldRenderCaptcha}
             watchedCfToken={watchedCfToken}
             confirmButtonDisabled={confirmButtonDisabled}
