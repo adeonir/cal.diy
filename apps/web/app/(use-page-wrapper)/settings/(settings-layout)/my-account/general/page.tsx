@@ -1,14 +1,12 @@
+import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
+import { businessHoursRouter } from "@calcom/trpc/server/routers/viewer/businessHours/_router";
+import { meRouter } from "@calcom/trpc/server/routers/viewer/me/_router";
+import { getTravelSchedule } from "@calcom/web/app/cache/travelSchedule";
+import { buildLegacyRequest } from "@lib/buildLegacyCtx";
 import { createRouterCaller } from "app/_trpc/context";
 import { _generateMetadata } from "app/_utils";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-
-import { getServerSession } from "@calcom/features/auth/lib/getServerSession";
-import { meRouter } from "@calcom/trpc/server/routers/viewer/me/_router";
-import { getTravelSchedule } from "@calcom/web/app/cache/travelSchedule";
-
-import { buildLegacyRequest } from "@lib/buildLegacyCtx";
-
 import GeneralView from "~/settings/my-account/general-view";
 
 export const generateMetadata = async () =>
@@ -30,11 +28,16 @@ const Page = async () => {
   }
 
   const meCaller = await createRouterCaller(meRouter);
-  const [user, travelSchedules] = await Promise.all([meCaller.get(), getTravelSchedule(userId)]);
+  const businessHoursCaller = await createRouterCaller(businessHoursRouter);
+  const [user, travelSchedules, businessHours] = await Promise.all([
+    meCaller.get(),
+    getTravelSchedule(userId),
+    businessHoursCaller.get(),
+  ]);
   if (!user) {
     redirect(redirectUrl);
   }
-  return <GeneralView user={user} travelSchedules={travelSchedules ?? []} />;
+  return <GeneralView user={user} travelSchedules={travelSchedules ?? []} businessHours={businessHours} />;
 };
 
 export default Page;

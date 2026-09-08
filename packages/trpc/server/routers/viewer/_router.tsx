@@ -9,6 +9,7 @@ import { appsRouter } from "./apps/_router";
 import { authRouter } from "./auth/_router";
 import { availabilityRouter } from "./availability/_router";
 import { bookingsRouter } from "./bookings/_router";
+import { businessHoursRouter } from "./businessHours/_router";
 import { calendarsRouter } from "./calendars/_router";
 import { calVideoRouter } from "./calVideo/_router";
 import { credentialsRouter } from "./credentials/_router";
@@ -54,5 +55,6 @@ export const viewerRouter = router({
   apiKeys: apiKeysRouter,
   ooo: oooRouter,
   holidays: holidaysRouter,
+  businessHours: businessHoursRouter,
   travelSchedules: travelSchedulesRouter,
 });

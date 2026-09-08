@@ -7,6 +7,7 @@ import dayjs from "@calcom/dayjs";
 import { getBookingFieldsWithSystemFields } from "@calcom/features/bookings/lib/getBookingFields";
 import { getDefaultEvent, getUsernameList } from "@calcom/features/eventtypes/lib/defaultEvents";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
+import type { BusinessHours } from "@calcom/lib/businessHours";
 import { getOrgOrTeamAvatar, getPlaceholderAvatar } from "@calcom/lib/defaultAvatarImage";
 import { getUserAvatarUrl } from "@calcom/lib/getAvatarUrl";
 import { isRecurringEvent, parseRecurringEvent } from "@calcom/lib/isRecurringEvent";
@@ -65,6 +66,14 @@ const userSelect = {
     },
   },
   defaultScheduleId: true,
+  timeZone: true,
+  businessHours: {
+    select: {
+      startTime: true,
+      endTime: true,
+      days: true,
+    },
+  },
 } satisfies Prisma.UserSelect;
 
 export const getPublicEventSelect = (fetchAllUsers: boolean) => {
@@ -252,6 +261,39 @@ function isAvailableInTimeSlot(
   return isWithinPeriod;
 }
 
+type OrganizerBusinessHours = {
+  timeZone: string;
+  businessHours: BusinessHours | null;
+} | null;
+
+/**
+ * Resolves whose business hours the booking page should warn against.
+ *
+ * Only a single organizer is resolvable: a round-robin event picks its host at booking time, and a
+ * collective event has several hosts whose hours would have to be merged. Returning null there
+ * makes the booker a no-op, which is the right outcome for a hint that never blocks.
+ * TODO(business-hours): team events.
+ */
+function getOrganizerBusinessHours(event: {
+  schedule: { timeZone: string | null } | null;
+  owner: { timeZone: string; businessHours: BusinessHours | null } | null;
+  subsetOfHosts: { user: { timeZone: string; businessHours: BusinessHours | null } }[];
+}): OrganizerBusinessHours {
+  const organizer = event.owner ?? (event.subsetOfHosts.length === 1 ? event.subsetOfHosts[0].user : null);
+
+  if (!organizer) {
+    return null;
+  }
+
+  const timeZone = event.schedule?.timeZone ?? organizer.timeZone;
+
+  if (!timeZone) {
+    return null;
+  }
+
+  return { timeZone, businessHours: organizer.businessHours };
+}
+
 export type PublicEventType = Awaited<ReturnType<typeof getPublicEvent>>;
 
 export async function getEventTypeHosts({
@@ -341,6 +383,8 @@ export const getPublicEvent = async (
     return {
       ...defaultEvent,
       bookingFields: getBookingFieldsWithSystemFields({ ...defaultEvent, disableBookingTitle }),
+      // A dynamic group event has several organizers, so no single set of business hours applies.
+      organizerBusinessHours: null as OrganizerBusinessHours,
       // Only return fields consumed by the booker.
       subsetOfUsers: users.map((user) => ({
         name: user.name,
@@ -568,6 +612,7 @@ export const getPublicEvent = async (
       : null,
     // Sets user data on profile object for easier access
     profile: getProfileFromEvent(eventWithUserProfiles),
+    organizerBusinessHours: getOrganizerBusinessHours(eventWithUserProfiles),
     subsetOfUsers: users,
     users: fetchAllUsers ? users : undefined,
     entity: {
