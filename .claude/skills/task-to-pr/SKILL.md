@@ -84,14 +84,19 @@ Two layers, and both matter. The summary below is here so you can decide fast; t
 
 Before writing anything, find two or three files that already do something close to what you need, and copy their shape: how they import, where types live, how they handle errors, how they are tested. A change that looks like the code around it survives review; a change that invents its own style does not, no matter how clean it is on its own.
 
+When the neighbor and the linter disagree, the linter wins. Files predate rule changes, so a neighbor can be stale on import order, class order, or a rule added after it was written — copying it then produces a change that fails the gate you have to pass anyway. Run Biome on the file you are imitating before treating its shape as the convention, and follow the code around it only where the linter is silent.
+
 ## Phase 4 — Implement
 
-Create the branch before the first edit, from an up-to-date `main`:
+Create the branch before the first edit, from a `main` that matches the remote:
 
 ```bash
 git checkout main && git pull origin main
+git log --oneline origin/main..main
 git checkout -b <type>/<short-description>
 ```
+
+That middle command has to print nothing. `git pull` reporting "up to date" only means there was nothing to fetch — it says nothing about local commits sitting on top of the remote. Branch off a `main` that is ahead, and every one of those commits rides along into your pull request, because the pull request compares against `origin/main` rather than your local branch. If the command prints anything, stop and ask what to do with those commits before creating the branch; they usually belong in a pull request of their own, opened first.
 
 Use the same types as the commits: `feat/`, `fix/`, `refactor/`, `chore/`, `docs/`, `test/`.
 
@@ -116,7 +121,18 @@ yarn test
 
 Then check the change by hand against the observable behavior from Phase 1: what a user should see when it works. A green test suite proves the code does what the tests say, not what the task asked for.
 
-If a gate fails for a reason unrelated to your change, say so explicitly in the summary with the failing output, rather than quietly moving on.
+A gate can be red before you touch anything, and on a repository this size `yarn type-check` usually is. A red gate is therefore not evidence on its own — what matters is whether your change made it worse. When a gate fails, get the baseline before drawing any conclusion:
+
+```bash
+git stash --include-untracked        # or commit on the branch first
+git checkout <base branch>
+<the same gate command> > baseline.txt 2>&1
+git checkout -
+<the same gate command> > branch.txt 2>&1
+diff baseline.txt branch.txt
+```
+
+Compare the two outputs, not the error counts, and read the diff for what it actually shows. Line numbers shifting by exactly the number of lines you added is your change moving existing errors, not causing them. Fix every failure the diff attributes to you. For the rest, say in the summary that the gate is red on the base branch too, and give the comparison that shows it — an unexplained red gate reads as a broken change, and a red gate you claim is pre-existing without evidence reads as an excuse.
 
 ## Phase 6 — Commit and open the PR
 
