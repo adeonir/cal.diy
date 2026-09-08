@@ -40,7 +40,7 @@ import {
   EventTypeEmbedButton,
   EventTypeEmbedDialog,
 } from "@calcom/web/modules/embed/components/EventTypeEmbed";
-import { EventTypeDescription } from "@calcom/web/modules/event-types/components";
+import { EventTypeDescription, EventTypeQrCode } from "@calcom/web/modules/event-types/components";
 import {
   CreateEventTypeDialog,
   type ProfileOption,
@@ -643,6 +643,8 @@ export const InfiniteEventTypeList = ({
                                     }}
                                   />
                                 </Tooltip>
+
+                                <EventTypeQrCode url={calLink} />
 
                                 {isPrivateURLEnabled && (
                                   <Tooltip content={t("copy_private_link_to_event")}>
